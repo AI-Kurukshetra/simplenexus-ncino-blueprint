@@ -1,0 +1,4 @@
+interface:
+  display_name: "Virtual Health UI"
+  short_description: "Design rules for the health platform UI"
+  default_prompt: "Use $virtual-health-ui to design or refine screens for the virtual health platform."

@@ -1,0 +1,18 @@
+# Environment files - NEVER commit these
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Next.js
+web/.next/
+web/out/
+
+# OS
+.DS_Store
+Thumbs.db
