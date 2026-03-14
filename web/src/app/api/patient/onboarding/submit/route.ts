@@ -60,6 +60,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const existingMetadata =
+    session.user.user_metadata && typeof session.user.user_metadata === "object"
+      ? session.user.user_metadata
+      : {};
+  await admin.auth.admin.updateUserById(session.user.id, {
+    user_metadata: {
+      ...existingMetadata,
+      patientOnboarding: {
+        status: "submitted",
+        readyForScheduling: true,
+        submittedAt,
+      },
+    },
+  });
+
   await recordAuditLogBestEffort({
     actorUserId: session.user.id,
     organizationId: context.organizationId,

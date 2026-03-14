@@ -15,6 +15,7 @@ import { getProviderApprovalStatus } from "@/lib/auth/roles";
 import { notifyAppointmentParticipants } from "@/lib/notifications/store";
 import { hoursUntil, getSchedulingPolicy } from "@/lib/scheduling/policies";
 import { reopenProviderSlot, reserveProviderSlot } from "@/lib/scheduling/store";
+import { normalizedDateTimeSchema } from "@/lib/scheduling/schemas";
 
 const manageAppointmentSchema = z.discriminatedUnion("action", [
   z.object({
@@ -24,7 +25,7 @@ const manageAppointmentSchema = z.discriminatedUnion("action", [
   z.object({
     appointmentId: z.string().min(1),
     action: z.literal("reschedule"),
-    nextStartsAt: z.iso.datetime(),
+    nextStartsAt: normalizedDateTimeSchema,
     nextSlotId: z.string().min(1),
   }),
 ]);

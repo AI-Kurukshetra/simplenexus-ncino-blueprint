@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Appointment = {
   id: string;
@@ -27,54 +27,93 @@ type ProviderSlot = {
   status: "available" | "booked" | "blocked";
 };
 
-export function AppointmentsShell() {
+export type AppointmentsShellMode = "all" | "booked" | "schedule";
+
+export function AppointmentsShell({ mode = "all" }: { mode?: AppointmentsShellMode }) {
+  const showBooked = mode !== "schedule";
+  const showSchedule = mode !== "booked";
+
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerSlots, setProviderSlots] = useState<ProviderSlot[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string>("");
   const [selectedSlotId, setSelectedSlotId] = useState<string>("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [status, setStatus] = useState<
     "idle" | "loading" | "error" | "created" | "onboarding_required" | "slot_unavailable"
   >("loading");
 
+  async function loadAppointments(showLoading = true) {
+    if (showLoading) setStatus("loading");
+
+    const response = await fetch("/api/appointments?view=patient", { cache: "no-store" });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setStatus("error");
+      setErrorMessage(payload?.error?.message ?? "Unable to load appointments.");
+      return;
+    }
+
+    const fetchedAppointments = (payload?.data?.appointments ?? []) as Appointment[];
+    setAppointments(fetchedAppointments);
+    setLastUpdatedAt(new Date().toISOString());
+    if (showLoading) setStatus("idle");
+  }
+
+  async function loadProviders(showLoading = true) {
+    if (showLoading) setStatus("loading");
+
+    const response = await fetch("/api/providers", { cache: "no-store" });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setStatus("error");
+      setErrorMessage(payload?.error?.message ?? "Unable to load providers.");
+      return;
+    }
+
+    const fetchedProviders = (payload?.data?.providers ?? []) as Provider[];
+    setProviders(fetchedProviders);
+    setSelectedProviderId((previous) => previous || fetchedProviders[0]?.id || "");
+    if (fetchedProviders.length === 0) {
+      setProviderSlots([]);
+      setSelectedSlotId("");
+    }
+    if (showLoading) setStatus("idle");
+  }
+
   useEffect(() => {
     let active = true;
 
-    Promise.all([
-      fetch("/api/appointments?view=patient", { cache: "no-store" }).then((response) =>
-        response.json(),
-      ),
-      fetch("/api/providers", { cache: "no-store" }).then((response) => response.json()),
-    ])
-      .then(([appointmentsPayload, providersPayload]) => {
-        if (!active) return;
-        const fetchedAppointments = (appointmentsPayload?.data?.appointments ?? []) as Appointment[];
-        const fetchedProviders = (providersPayload?.data?.providers ?? []) as Provider[];
-        setAppointments(fetchedAppointments);
-        setProviders(fetchedProviders);
-        if (fetchedProviders.length === 0) {
-          setProviderSlots([]);
-          setSelectedSlotId("");
+    (async () => {
+      try {
+        setStatus("loading");
+        const jobs: Promise<void>[] = [];
+        if (showBooked) {
+          jobs.push(loadAppointments(false));
         }
-        setSelectedProviderId((previous) =>
-          previous || fetchedProviders[0]?.id || "",
-        );
+        if (showSchedule) {
+          jobs.push(loadProviders(false));
+        }
+        await Promise.all(jobs);
+        if (!active) return;
+        setErrorMessage(null);
         setStatus("idle");
-      })
-      .catch(() => {
+      } catch {
         if (!active) return;
         setStatus("error");
-      });
+      }
+    })();
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [showBooked, showSchedule]);
 
   useEffect(() => {
     let active = true;
 
-    if (!selectedProviderId) {
+    if (!showSchedule || !selectedProviderId) {
       return;
     }
 
@@ -101,7 +140,25 @@ export function AppointmentsShell() {
     return () => {
       active = false;
     };
-  }, [selectedProviderId]);
+  }, [selectedProviderId, showSchedule]);
+
+  useEffect(() => {
+    if (!showBooked) return;
+
+    const refresh = () => {
+      void loadAppointments(false);
+    };
+
+    const interval = window.setInterval(refresh, 20000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [showBooked]);
 
   async function bookAppointment(formData: FormData) {
     const providerId = String(formData.get("providerId") ?? "");
@@ -109,14 +166,23 @@ export function AppointmentsShell() {
     const selectedSlot = providerSlots.find((slot) => slot.id === slotId);
 
     if (!selectedSlot || !providerId) {
+      setErrorMessage("Choose a provider and available slot.");
       setStatus("error");
       return;
     }
 
+    const startsAtDate = new Date(selectedSlot.startsAt);
+    if (Number.isNaN(startsAtDate.valueOf())) {
+      setErrorMessage("Selected slot has an invalid start time. Refresh and retry.");
+      setStatus("error");
+      return;
+    }
+    const normalizedStartsAt = startsAtDate.toISOString();
+
     const payload = {
       providerId,
       slotId,
-      startsAt: selectedSlot.startsAt,
+      startsAt: normalizedStartsAt,
       reason: String(formData.get("reason") ?? ""),
       appointmentType: String(formData.get("appointmentType") ?? "consult"),
     };
@@ -133,22 +199,24 @@ export function AppointmentsShell() {
     if (!response.ok) {
       const failurePayload = await response.json().catch(() => null);
       if (failurePayload?.error?.code === "ONBOARDING_REQUIRED") {
+        setErrorMessage(null);
         setStatus("onboarding_required");
         return;
       }
       if (failurePayload?.error?.code === "SLOT_UNAVAILABLE") {
+        setErrorMessage(null);
         setStatus("slot_unavailable");
         await refreshProviderSlots(providerId);
         return;
       }
+      setErrorMessage(failurePayload?.error?.message ?? "Unable to create appointment request.");
       setStatus("error");
       return;
     }
 
-    const created = await response.json();
-    setAppointments((prev) => [created?.data?.appointment, ...prev].filter(Boolean));
-    await refreshProviderSlots(providerId);
+    setErrorMessage(null);
     setStatus("created");
+    await Promise.all([loadAppointments(false), refreshProviderSlots(providerId)]);
   }
 
   async function refreshProviderSlots(providerId: string) {
@@ -165,163 +233,169 @@ export function AppointmentsShell() {
     );
   }
 
-  const providerMap = providers.reduce<Record<string, Provider>>((acc, provider) => {
-    acc[provider.id] = provider;
-    return acc;
-  }, {});
+  const providerMap = useMemo(
+    () =>
+      providers.reduce<Record<string, Provider>>((acc, provider) => {
+        acc[provider.id] = provider;
+        return acc;
+      }, {}),
+    [providers],
+  );
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Appointment Requests</h2>
-        {status === "loading" ? <p className="text-sm text-slate-500">Loading...</p> : null}
-        {status === "error" ? (
-          <p className="text-sm text-rose-600">
-            Unable to load or create appointment request.
-          </p>
+  const bookedSection = (
+    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-slate-900">Booked & Requested Appointments</h2>
+        {lastUpdatedAt ? (
+          <p className="text-xs text-slate-500">Updated: {new Date(lastUpdatedAt).toLocaleTimeString()}</p>
         ) : null}
-        {status === "created" ? (
-          <p className="text-sm text-emerald-700">
-            Request submitted. Waiting for provider approval.
-          </p>
-        ) : null}
-        {status === "onboarding_required" ? (
-          <p className="text-sm text-amber-700">
-            Complete{" "}
-            <Link href="/app/patient/onboarding" className="underline decoration-amber-400">
-              onboarding
-            </Link>{" "}
-            before requesting appointments.
-          </p>
-        ) : null}
-        {status === "slot_unavailable" ? (
-          <p className="text-sm text-rose-600">
-            Selected slot is no longer available. Choose another slot and retry.
-          </p>
-        ) : null}
-        <ul className="space-y-2">
-          {appointments.map((appointment) => (
-            <li
-              key={appointment.id}
-              className="rounded-md border border-slate-200 px-3 py-3 text-sm"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-medium text-slate-900">{appointment.reason}</p>
-                <StatusBadge status={appointment.status} />
-              </div>
-              <p className="mt-1 text-slate-600">
-                {new Date(appointment.startsAt).toLocaleString()} • {appointment.appointmentType} •{" "}
-                {providerMap[appointment.providerId]?.fullName ?? "Provider"}
-              </p>
-              <Link
-                href={`/app/patient/appointments/${appointment.id}`}
-                className="mt-2 inline-flex text-xs text-sky-700 hover:text-sky-900"
-              >
-                Open details
-              </Link>
-            </li>
-          ))}
-          {appointments.length === 0 && status !== "loading" ? (
-            <li className="rounded-md border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
-              No requests yet.
-            </li>
-          ) : null}
-        </ul>
-      </section>
-
-      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Request Appointment</h2>
-        <p className="text-xs text-slate-500">
-          Requests must be approved by the selected provider.
+      </div>
+      {status === "loading" ? <p className="text-sm text-slate-500">Loading...</p> : null}
+      {status === "error" ? (
+        <p className="text-sm text-rose-600">
+          {errorMessage ?? "Unable to load appointment updates."}
         </p>
-        <form action={bookAppointment} className="space-y-3">
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-slate-700">Provider</span>
-            <select
-              name="providerId"
-              required
-              value={selectedProviderId}
-              onChange={(event) => {
-                setSelectedProviderId(event.target.value);
-                setSelectedSlotId("");
-              }}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
+      ) : null}
+      <ul className="space-y-2">
+        {appointments.map((appointment) => (
+          <li
+            key={appointment.id}
+            className="rounded-md border border-slate-200 px-3 py-3 text-sm hover:border-slate-300"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-slate-900">{appointment.reason}</p>
+              <StatusBadge status={appointment.status} />
+            </div>
+            <p className="mt-1 text-slate-600">
+              {new Date(appointment.startsAt).toLocaleString()} • {appointment.appointmentType} •{" "}
+              {providerMap[appointment.providerId]?.fullName ?? "Provider"}
+            </p>
+            <Link
+              href={`/app/patient/appointments/${appointment.id}`}
+              className="mt-2 inline-flex text-xs text-sky-700 hover:text-sky-900"
             >
-              {providers.length === 0 ? <option value="">No approved providers</option> : null}
-              {providers.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.fullName} - {provider.specialty}
+              Open details
+            </Link>
+          </li>
+        ))}
+        {appointments.length === 0 && status !== "loading" ? (
+          <li className="rounded-md border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
+            No requests yet.
+          </li>
+        ) : null}
+      </ul>
+    </section>
+  );
+
+  const scheduleSection = (
+    <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-semibold text-slate-900">Schedule New Appointment</h2>
+      <p className="text-xs text-slate-500">
+        Requests require provider approval. You&apos;ll get notifications on updates.
+      </p>
+      {status === "created" ? (
+        <p className="text-sm text-emerald-700">
+          Request submitted. Waiting for provider approval.
+        </p>
+      ) : null}
+      {status === "onboarding_required" ? (
+        <p className="text-sm text-amber-700">
+          Complete{" "}
+          <Link href="/app/patient/onboarding" className="underline decoration-amber-400">
+            onboarding
+          </Link>{" "}
+          before requesting appointments.
+        </p>
+      ) : null}
+      {status === "slot_unavailable" ? (
+        <p className="text-sm text-rose-600">
+          Selected slot is no longer available. Choose another slot and retry.
+        </p>
+      ) : null}
+      <form action={bookAppointment} className="space-y-3">
+        <label className="space-y-1 text-sm">
+          <span className="font-medium text-slate-700">Provider</span>
+          <select
+            name="providerId"
+            required
+            value={selectedProviderId}
+            onChange={(event) => {
+              setSelectedProviderId(event.target.value);
+              setSelectedSlotId("");
+            }}
+            className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
+          >
+            {providers.length === 0 ? <option value="">No approved providers</option> : null}
+            {providers.map((provider) => (
+              <option key={provider.id} value={provider.id}>
+                {provider.fullName} - {provider.specialty}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="space-y-2 text-sm">
+          <p className="font-medium text-slate-700">Available Slot</p>
+          {providerSlots.length === 0 ? (
+            <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-slate-500">
+              No available slots for this provider.
+            </div>
+          ) : (
+            <select
+              name="slotId"
+              required
+              value={selectedSlotId}
+              onChange={(event) => setSelectedSlotId(event.target.value)}
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
+            >
+              {providerSlots.map((slot) => (
+                <option key={slot.id} value={slot.id}>
+                  {new Date(slot.startsAt).toLocaleDateString()} •{" "}
+                  {new Date(slot.startsAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}{" "}
+                  -{" "}
+                  {new Date(slot.endsAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}{" "}
+                  ({Math.round(
+                    (new Date(slot.endsAt).valueOf() - new Date(slot.startsAt).valueOf()) / 60000,
+                  )}{" "}
+                  min)
                 </option>
               ))}
             </select>
-          </label>
-          <div className="space-y-2 text-sm">
-            <p className="font-medium text-slate-700">Available Slot</p>
-            <input type="hidden" name="slotId" value={selectedSlotId} />
-            {providerSlots.length === 0 ? (
-              <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-slate-500">
-                No available slots for this provider.
-              </div>
-            ) : (
-              <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2">
-                {providerSlots.map((slot) => (
-                  <button
-                    key={slot.id}
-                    type="button"
-                    onClick={() => setSelectedSlotId(slot.id)}
-                    className={`w-full rounded-md border px-3 py-2 text-left transition ${
-                      selectedSlotId === slot.id
-                        ? "border-sky-400 bg-sky-50"
-                        : "border-slate-200 bg-white hover:border-slate-300"
-                    }`}
-                  >
-                    <p className="text-sm font-medium text-slate-900">
-                      {new Date(slot.startsAt).toLocaleDateString()} •{" "}
-                      {new Date(slot.startsAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}{" "}
-                      -{" "}
-                      {new Date(slot.endsAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Duration:{" "}
-                      {Math.round(
-                        (new Date(slot.endsAt).valueOf() - new Date(slot.startsAt).valueOf()) / 60000,
-                      )}{" "}
-                      minutes
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <Field label="Reason" name="reason" placeholder="Follow-up consultation" />
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-slate-700">Appointment Type</span>
-            <select
-              name="appointmentType"
-              className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
-            >
-              <option value="consult">Consult</option>
-              <option value="follow-up">Follow-up</option>
-              <option value="intake">Intake</option>
-            </select>
-          </label>
-          <button
-            type="submit"
-            disabled={providers.length === 0 || providerSlots.length === 0 || !selectedSlotId}
-            className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          )}
+        </div>
+        <Field label="Reason" name="reason" placeholder="Follow-up consultation" />
+        <label className="space-y-1 text-sm">
+          <span className="font-medium text-slate-700">Appointment Type</span>
+          <select
+            name="appointmentType"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
           >
-            Submit request
-          </button>
-        </form>
-      </section>
-    </div>
+            <option value="consult">Consult</option>
+            <option value="follow-up">Follow-up</option>
+            <option value="intake">Intake</option>
+          </select>
+        </label>
+        <button
+          type="submit"
+          disabled={providers.length === 0 || providerSlots.length === 0 || !selectedSlotId}
+          className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Submit request
+        </button>
+      </form>
+    </section>
   );
+
+  if (showBooked && showSchedule) {
+    return <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">{bookedSection}{scheduleSection}</div>;
+  }
+
+  return <div className="space-y-4">{showBooked ? bookedSection : null}{showSchedule ? scheduleSection : null}</div>;
 }
 
 function Field({

@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+export const normalizedDateTimeSchema = z
+  .string()
+  .min(1)
+  .refine((value) => !Number.isNaN(new Date(value).valueOf()), "Invalid datetime")
+  .transform((value) => new Date(value).toISOString());
+
 export const appointmentViewSchema = z.object({
   view: z.enum(["patient", "provider", "admin"]).default("patient"),
 });
@@ -7,7 +13,7 @@ export const appointmentViewSchema = z.object({
 export const appointmentCreateSchema = z.object({
   providerId: z.string().min(1),
   slotId: z.string().min(1).optional(),
-  startsAt: z.iso.datetime(),
+  startsAt: normalizedDateTimeSchema,
   reason: z.string().min(3),
   appointmentType: z.enum(["consult", "follow-up", "intake"]),
 });
