@@ -80,6 +80,7 @@ function getAppUrl() {
 function signupErrorCode(error: { message?: string } | null) {
   const message = error?.message?.toLowerCase() ?? "";
   if (message.includes("already registered")) return "email_in_use";
+  if (message.includes("rate limit")) return "rate_limited";
   if (message.includes("invalid email")) return "invalid_email";
   if (message.includes("password")) return "weak_password";
   return "signup_failed";
@@ -127,6 +128,25 @@ export async function signUpWithPassword(formData: FormData) {
   }
 
   const providerPending = parsed.data.role === "provider";
+  const rolePayload = {
+    role: parsed.data.role,
+    providerApprovalStatus: providerPending ? "pending" : "approved",
+    accountStatus: providerPending ? "pending_provider_approval" : "active",
+  } as const;
+  const userPayload = {
+    fullName: parsed.data.fullName,
+    phone: parsed.data.phone,
+    requestedRole: parsed.data.role,
+    providerProfile:
+      parsed.data.role === "provider"
+        ? {
+            specialty: parsed.data.providerSpecialty,
+            licenseNumber: parsed.data.providerLicenseNumber,
+            yearsExperience: parsed.data.providerYearsExperience,
+            submittedAt: new Date().toISOString(),
+          }
+        : null,
+  };
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase.auth.signUp({
@@ -135,13 +155,47 @@ export async function signUpWithPassword(formData: FormData) {
     options: {
       emailRedirectTo: `${getAppUrl()}/auth/callback`,
       data: {
-        fullName: parsed.data.fullName,
-        requestedRole: parsed.data.role,
+        ...userPayload,
       },
     },
   });
 
   if (error) {
+    const isRateLimited = signupErrorCode(error) === "rate_limited";
+    if (isRateLimited && process.env.NODE_ENV !== "production") {
+      const admin = createSupabaseAdminClient();
+      const created = await admin.auth.admin.createUser({
+        email: parsed.data.email,
+        password: parsed.data.password,
+        email_confirm: true,
+        app_metadata: {
+          ...rolePayload,
+        },
+        user_metadata: {
+          ...userPayload,
+        },
+      });
+
+      if (!created.error && created.data.user) {
+        const profileContext = await ensureOrganizationContextForUser({
+          user: created.data.user,
+          roleOverride: parsed.data.role,
+        });
+        if (profileContext.error) {
+          console.error("signup profile bootstrap failed after admin fallback", {
+            userId: created.data.user.id,
+            role: parsed.data.role,
+            error: profileContext.error,
+          });
+        }
+
+        if (providerPending) {
+          redirect("/sign-in?message=provider_pending");
+        }
+        redirect("/sign-in?message=account_created");
+      }
+    }
+
     redirect(`/sign-up?error=${signupErrorCode(error)}`);
   }
 
@@ -150,24 +204,11 @@ export async function signUpWithPassword(formData: FormData) {
     const { error: updateError } = await admin.auth.admin.updateUserById(data.user.id, {
       app_metadata: {
         ...(data.user.app_metadata ?? {}),
-        role: parsed.data.role,
-        providerApprovalStatus: providerPending ? "pending" : "approved",
-        accountStatus: providerPending ? "pending_provider_approval" : "active",
+        ...rolePayload,
       },
       user_metadata: {
         ...(data.user.user_metadata ?? {}),
-        fullName: parsed.data.fullName,
-        phone: parsed.data.phone,
-        requestedRole: parsed.data.role,
-        providerProfile:
-          parsed.data.role === "provider"
-            ? {
-                specialty: parsed.data.providerSpecialty,
-                licenseNumber: parsed.data.providerLicenseNumber,
-                yearsExperience: parsed.data.providerYearsExperience,
-                submittedAt: new Date().toISOString(),
-              }
-            : null,
+        ...userPayload,
       },
     });
 

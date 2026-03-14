@@ -12,6 +12,9 @@ function getError(input: string | undefined) {
   if (input === "invalid_email") {
     return "Please enter a valid email address.";
   }
+  if (input === "rate_limited") {
+    return "Signup is temporarily rate-limited by Supabase. Wait a few minutes and try again.";
+  }
   if (input === "weak_password") {
     return "Password does not meet requirements. Use at least 8 characters.";
   }
