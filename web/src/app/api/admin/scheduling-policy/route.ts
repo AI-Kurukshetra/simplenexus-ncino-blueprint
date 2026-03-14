@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { failure, success } from "@/lib/api/response";
 import { requireRole, requireSession } from "@/lib/auth/guard";
+import { ensureOrganizationContextForUser } from "@/lib/db/organization";
 import {
   getSchedulingPolicy,
   schedulingPolicyUpdateSchema,
@@ -15,7 +16,20 @@ export async function GET() {
   const roleGuard = requireRole(session.role, ["admin", "super_admin"]);
   if (roleGuard) return roleGuard;
 
-  const { error, policy } = await getSchedulingPolicy();
+  const context = await ensureOrganizationContextForUser({
+    user: session.user,
+    roleOverride: session.role,
+  });
+  if (context.error) {
+    return NextResponse.json(
+      failure("INTERNAL_ERROR", "Unable to resolve organization context"),
+      { status: 500 },
+    );
+  }
+
+  const { error, policy } = await getSchedulingPolicy({
+    organizationId: context.organizationId,
+  });
   if (error) {
     return NextResponse.json(failure("INTERNAL_ERROR", "Unable to load scheduling policy"), {
       status: 500,

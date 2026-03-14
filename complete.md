@@ -5,7 +5,7 @@ Use this file as the single source of truth for implementation status against `N
 ## 1) Snapshot
 - Current date: 2026-03-14
 - Current stage: `Stage 3 - Continuity`
-- Overall completion: `67%`
+- Overall completion: `71%`
 - Health: `On Track`
 - Last updated by: `Codex`
 
@@ -102,15 +102,14 @@ Status legend:
 | Supabase core schema and RLS baseline | Codex + User | Completed | Added first real DB migration with core tables, indexes, helper functions, and row-level policies; pushed to remote project |
 | SQL cutover for scheduling and appointments | Codex + User | Completed | Migrated availability slots and appointment request/event stores/APIs from auth metadata to Supabase tables |
 | SQL cutover for tasks and notifications | Codex + User | Completed | Migrated care tasks and notification/reminder stores/APIs to Supabase tables with dedupe and reminder dispatch logic |
+| SQL cutover for provider/patient directories and scheduling policy | Codex + User | Completed | Migrated provider/patient admin stores, onboarding status updates, and scheduling policy persistence from auth metadata to SQL tables with profile backfill bridge |
 
 ## 7) Blockers / Risks
 
 | Date | Type | Description | Impact | Mitigation | Owner | Status |
 |---|---|---|---|---|---|---|
-| 2026-03-14 | Architecture | Appointment workflow data is currently stored in Supabase `auth` metadata to avoid DB migration | Limited scalability and complex querying at scale | Replace with dedicated Supabase tables + RLS in next DB phase | Codex + User | Open |
-| 2026-03-14 | Architecture | Notifications and scheduling policies are persisted in Supabase `auth` metadata | Metadata size and update-contention risk as volume grows | Migrate notifications/policies to dedicated Postgres tables with retention strategy in DB phase | Codex + User | Open |
-| 2026-03-14 | Architecture | Care tasks/workflows are persisted in Supabase `auth` metadata | Higher contention and weak queryability for population-level workflow analytics | Migrate care tasks to tenant-scoped tables with indexes and audit trail in DB phase | Codex + User | Open |
-| 2026-03-14 | Migration | App APIs still read/write mostly from `auth` metadata while new SQL tables now exist | Temporary dual-model gap until repository layer switches to SQL-backed data | Incrementally migrate API routes to DB-backed stores with compatibility bridge and backfill | Codex + User | Open |
+| 2026-03-14 | Migration | Role and provider approval gating still depend on JWT `app_metadata` in middleware/session checks | Incorrect access if DB approval state and JWT claims diverge temporarily | Continue dual-write to `app_metadata` on role/approval changes and add JWT refresh/session invalidation strategy in hardening stage | Codex + User | Open |
+| 2026-03-14 | Migration | Provider/patient SQL profile bootstrapping currently relies on lazy backfill during list/read flows | First-read latency spikes and inconsistent bootstrap timing for large user sets | Add explicit one-time migration script and scheduled backfill job for all existing users | Codex + User | Open |
 
 ## 8) Change Log
 
@@ -162,6 +161,9 @@ Status legend:
 | 2026-03-14 | Data Layer | Replaced metadata-based provider availability store with SQL-backed slot repository and updated availability APIs | Codex |
 | 2026-03-14 | Data Layer | Replaced metadata-based care task and notification stores with SQL-backed repositories and updated reminder dispatch/read APIs | Codex |
 | 2026-03-14 | Validation | Re-verified lint and production build after SQL cutover for appointments/tasks/notifications (`npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | Data Layer | Replaced metadata-based provider/patient directory and scheduling policy stores with SQL-backed repositories and onboarding profile writes | Codex |
+| 2026-03-14 | Auth/Data | Added SQL profile bootstrap in signup/invite flows and compatibility backfill for legacy users missing profile rows | Codex |
+| 2026-03-14 | Validation | Re-verified lint and production build after provider/patient/policy SQL cutover (`npm run lint`, `npm run build -- --webpack`) | Codex |
 
 ## 9) Weekly Update Template
 
@@ -242,6 +244,7 @@ ID format: `STG{n}-MOD{8.x}-TASK-{nnn}`
 | STG3-MOD8.9-TASK-002 | Stage 3 | 8.9 | Role-specific care plan and workflow task UIs | `$virtual-health-ui`, `$implementation-progress-tracker` | `web/src/components/patient/care-plan-board.tsx`, `web/src/components/provider/task-board.tsx`, `web/src/components/admin/workflow-task-table.tsx`, `web/src/app/app/patient/care-plans/page.tsx`, `web/src/app/app/provider/tasks/page.tsx`, `web/src/app/app/admin/workflows/page.tsx`, `web/src/components/layout/app-shell.tsx`, `web/src/app/app/*/dashboard/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
 | STG1-MOD8.1-TASK-005 | Stage 1 | 8.1 | Core Supabase SQL schema and RLS baseline migration | `$supabase-rls-guardian`, `$implementation-progress-tracker` | `supabase/migrations/20260314094051_core_schema_rls.sql`, `supabase db push` (remote project `zsdokbebjfyxacuwwdan`) | Codex + User | Done | 2026-03-14 |
 | STG1-MOD8.1-TASK-006 | Stage 1 | 8.1 | SQL repository cutover for scheduling/appointments/tasks/notifications | `$api-contract-enforcer`, `$supabase-rls-guardian`, `$implementation-progress-tracker` | `web/src/lib/db/organization.ts`, `web/src/lib/scheduling/store.ts`, `web/src/lib/appointments/store.ts`, `web/src/lib/tasks/store.ts`, `web/src/lib/notifications/store.ts`, `web/src/app/api/provider/availability/route.ts`, `web/src/app/api/appointments/route.ts`, `web/src/app/api/notifications/route.ts`, `web/src/app/app/patient/appointments/[id]/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
+| STG1-MOD8.1-TASK-007 | Stage 1 | 8.1 | SQL repository cutover for provider/patient directories, onboarding status, and scheduling policy | `$api-contract-enforcer`, `$supabase-rls-guardian`, `$implementation-progress-tracker` | `web/src/lib/providers/store.ts`, `web/src/lib/patients/store.ts`, `web/src/lib/scheduling/policies.ts`, `web/src/lib/scheduling/store.ts`, `web/src/lib/auth/actions.ts`, `web/src/app/api/patient/onboarding/draft/route.ts`, `web/src/app/api/patient/onboarding/submit/route.ts`, `web/src/app/api/admin/scheduling-policy/route.ts`, `web/src/app/api/appointments/route.ts`, `web/src/app/api/appointments/manage/route.ts`, `web/src/app/app/patient/dashboard/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
 |  |  |  |  |  |  |  |  |  |
 
 ## 13) Task Status Lifecycle

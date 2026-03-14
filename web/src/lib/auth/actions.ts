@@ -9,6 +9,7 @@ import {
   getDefaultHomeForUser,
   sanitizeNextPath,
 } from "@/lib/auth/roles";
+import { ensureOrganizationContextForUser } from "@/lib/db/organization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -165,6 +166,21 @@ export async function signUpWithPassword(formData: FormData) {
     if (updateError) {
       redirect("/sign-up?error=signup_failed");
     }
+
+    const { data: refreshedUserData, error: refreshError } = await admin.auth.admin.getUserById(
+      data.user.id,
+    );
+    if (refreshError || !refreshedUserData.user) {
+      redirect("/sign-up?error=signup_failed");
+    }
+
+    const profileContext = await ensureOrganizationContextForUser({
+      user: refreshedUserData.user,
+      roleOverride: parsed.data.role,
+    });
+    if (profileContext.error) {
+      redirect("/sign-up?error=signup_failed");
+    }
   }
 
   if (data.user && data.session) {
@@ -265,6 +281,21 @@ export async function acceptInvite(formData: FormData) {
   });
 
   if (error) {
+    redirect("/invite/accept?error=accept_failed");
+  }
+
+  const { data: refreshedUserData, error: refreshError } = await admin.auth.admin.getUserById(
+    user.id,
+  );
+  if (refreshError || !refreshedUserData.user) {
+    redirect("/invite/accept?error=accept_failed");
+  }
+
+  const profileContext = await ensureOrganizationContextForUser({
+    user: refreshedUserData.user,
+    roleOverride: role,
+  });
+  if (profileContext.error) {
     redirect("/invite/accept?error=accept_failed");
   }
 

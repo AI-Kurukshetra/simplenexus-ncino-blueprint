@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 
-import { type PatientOnboardingStatus } from "@/lib/auth/roles";
+import { getRoleFromUser, type PatientOnboardingStatus } from "@/lib/auth/roles";
 import { ensureOrganizationContextForUser } from "@/lib/db/organization";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -87,6 +87,15 @@ export async function getPatientOnboardingSnapshotForUser(
 
 export async function listPatients() {
   const admin = createSupabaseAdminClient();
+  const { data: authUsersData, error: authUsersError } = await admin.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (authUsersError) return { error: authUsersError, patients: [] as PatientDirectoryItem[] };
+
+  const patientUsers = authUsersData.users.filter((authUser) => getRoleFromUser(authUser) === "patient");
+  const patientUserIdsFromAuth = new Set(patientUsers.map((patientUser) => patientUser.id));
+
   const { data: patientRows, error } = await admin
     .from("patient_profiles")
     .select("user_id, onboarding_status, ready_for_scheduling, submitted_at, created_at")
@@ -94,8 +103,31 @@ export async function listPatients() {
 
   if (error) return { error, patients: [] as PatientDirectoryItem[] };
 
-  const patientsData = (patientRows ?? []) as PatientProfileRow[];
-  const patientUserIds = patientsData.map((row) => row.user_id);
+  let patientsData = (patientRows ?? []) as PatientProfileRow[];
+  const existingPatientIds = new Set(patientsData.map((row) => row.user_id));
+  const missingPatients = patientUsers.filter((patientUser) => !existingPatientIds.has(patientUser.id));
+
+  for (const missingPatient of missingPatients) {
+    await ensureOrganizationContextForUser({
+      user: missingPatient,
+      roleOverride: "patient",
+    });
+  }
+
+  if (missingPatients.length > 0) {
+    const refreshed = await admin
+      .from("patient_profiles")
+      .select("user_id, onboarding_status, ready_for_scheduling, submitted_at, created_at")
+      .order("created_at", { ascending: false });
+    if (refreshed.error) {
+      return { error: refreshed.error, patients: [] as PatientDirectoryItem[] };
+    }
+    patientsData = (refreshed.data ?? []) as PatientProfileRow[];
+  }
+
+  const patientUserIds = Array.from(
+    new Set([...patientsData.map((row) => row.user_id), ...patientUserIdsFromAuth]),
+  );
 
   if (patientUserIds.length === 0) {
     return { error: null, patients: [] as PatientDirectoryItem[] };
@@ -122,12 +154,6 @@ export async function listPatients() {
     const current = appointmentCountByPatient.get(row.patient_user_id) ?? 0;
     appointmentCountByPatient.set(row.patient_user_id, current + 1);
   }
-
-  const { data: authUsersData, error: authUsersError } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
-  if (authUsersError) return { error: authUsersError, patients: [] as PatientDirectoryItem[] };
 
   const emailMap = new Map<string, string>(
     authUsersData.users.map((authUser) => [authUser.id, authUser.email ?? ""]),

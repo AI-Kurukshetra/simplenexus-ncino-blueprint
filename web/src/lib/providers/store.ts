@@ -1,4 +1,5 @@
 import { ensureOrganizationContextForUser } from "@/lib/db/organization";
+import { getRoleFromUser } from "@/lib/auth/roles";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export type ProviderDirectoryItem = {
@@ -26,6 +27,15 @@ type UserProfileRow = {
 
 export async function listProviders() {
   const admin = createSupabaseAdminClient();
+  const { data: usersData, error: usersError } = await admin.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (usersError) return { error: usersError, providers: [] as ProviderDirectoryItem[] };
+
+  const providerUsers = usersData.users.filter((user) => getRoleFromUser(user) === "provider");
+  const providerUserIdsFromAuth = new Set(providerUsers.map((user) => user.id));
+
   const { data: providerRows, error } = await admin
     .from("provider_profiles")
     .select("user_id, specialty, license_number, years_experience, approval_status")
@@ -33,8 +43,31 @@ export async function listProviders() {
 
   if (error) return { error, providers: [] as ProviderDirectoryItem[] };
 
-  const providers = (providerRows ?? []) as ProviderProfileRow[];
-  const providerUserIds = providers.map((row) => row.user_id);
+  let providers = (providerRows ?? []) as ProviderProfileRow[];
+  const existingProviderIds = new Set(providers.map((row) => row.user_id));
+  const missingProviders = providerUsers.filter((user) => !existingProviderIds.has(user.id));
+
+  for (const missingProvider of missingProviders) {
+    await ensureOrganizationContextForUser({
+      user: missingProvider,
+      roleOverride: "provider",
+    });
+  }
+
+  if (missingProviders.length > 0) {
+    const refreshed = await admin
+      .from("provider_profiles")
+      .select("user_id, specialty, license_number, years_experience, approval_status")
+      .order("created_at", { ascending: false });
+    if (refreshed.error) {
+      return { error: refreshed.error, providers: [] as ProviderDirectoryItem[] };
+    }
+    providers = (refreshed.data ?? []) as ProviderProfileRow[];
+  }
+
+  const providerUserIds = Array.from(
+    new Set([...providers.map((row) => row.user_id), ...providerUserIdsFromAuth]),
+  );
 
   if (providerUserIds.length === 0) {
     return { error: null, providers: [] as ProviderDirectoryItem[] };
@@ -49,12 +82,6 @@ export async function listProviders() {
   const profileMap = new Map<string, UserProfileRow>(
     ((userProfiles ?? []) as UserProfileRow[]).map((row) => [row.user_id, row]),
   );
-
-  const { data: usersData, error: usersError } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
-  });
-  if (usersError) return { error: usersError, providers: [] as ProviderDirectoryItem[] };
 
   const emailMap = new Map<string, string>(
     usersData.users.map((user) => [user.id, user.email ?? ""]),

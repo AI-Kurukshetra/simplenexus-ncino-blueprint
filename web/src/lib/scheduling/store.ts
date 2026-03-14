@@ -1,7 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 
 import { ensureOrganizationContextForUser } from "@/lib/db/organization";
-import { getProviderApprovalStatus, getRoleFromUser } from "@/lib/auth/roles";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export type ProviderAvailabilitySlot = {
@@ -22,6 +21,18 @@ type SlotRow = {
   created_at: string;
 };
 
+type ProviderStatusRow = {
+  user_id: string;
+  approval_status: "pending" | "approved" | "rejected";
+  account_status: "pending_provider_approval" | "active" | "rejected";
+};
+
+export type ProviderState = {
+  id: string;
+  approvalStatus: "pending" | "approved" | "rejected";
+  accountStatus: "pending_provider_approval" | "active" | "rejected";
+};
+
 function mapSlot(row: SlotRow): ProviderAvailabilitySlot {
   return {
     id: row.id,
@@ -34,11 +45,24 @@ function mapSlot(row: SlotRow): ProviderAvailabilitySlot {
 
 export async function getProviderById(providerUserId: string) {
   const admin = createSupabaseAdminClient();
-  const { data, error } = await admin.auth.admin.getUserById(providerUserId);
+  const { data, error } = await admin
+    .from("provider_profiles")
+    .select("user_id, approval_status, account_status")
+    .eq("user_id", providerUserId)
+    .maybeSingle();
 
-  if (error) return { error, provider: null as User | null };
-  if (!data.user) return { error: new Error("Provider not found"), provider: null as User | null };
-  return { error: null, provider: data.user };
+  if (error) return { error, provider: null as ProviderState | null };
+  if (!data) return { error: new Error("Provider not found"), provider: null as ProviderState | null };
+
+  const row = data as ProviderStatusRow;
+  return {
+    error: null,
+    provider: {
+      id: row.user_id,
+      approvalStatus: row.approval_status,
+      accountStatus: row.account_status,
+    },
+  };
 }
 
 export async function listProviderSlots(user: User) {
@@ -57,11 +81,7 @@ export async function listAvailableSlotsByProviderId(providerUserId: string) {
   const found = await getProviderById(providerUserId);
   if (found.error || !found.provider) return { error: found.error, slots: [] as ProviderAvailabilitySlot[] };
 
-  if (getRoleFromUser(found.provider) !== "provider") {
-    return { error: new Error("Provider not found"), slots: [] as ProviderAvailabilitySlot[] };
-  }
-
-  if (getProviderApprovalStatus(found.provider) !== "approved") {
+  if (found.provider.approvalStatus !== "approved") {
     return { error: null, slots: [] as ProviderAvailabilitySlot[] };
   }
 
@@ -187,15 +207,7 @@ export async function reserveProviderSlot(params: {
     };
   }
 
-  if (getRoleFromUser(found.provider) !== "provider") {
-    return {
-      error: new Error("Provider unavailable"),
-      unavailable: true,
-      slot: null as ProviderAvailabilitySlot | null,
-    };
-  }
-
-  if (getProviderApprovalStatus(found.provider) !== "approved") {
+  if (found.provider.approvalStatus !== "approved") {
     return {
       error: new Error("Provider not approved"),
       unavailable: true,
