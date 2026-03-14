@@ -15,6 +15,7 @@ function getNavItems(role: string | null, providerPending: boolean) {
       { href: "/app/patient/onboarding", label: "Onboarding" },
       { href: "/app/patient/appointments", label: "Appointments" },
       { href: "/app/patient/care-plans", label: "Care Plans" },
+      { href: "/app/patient/billing", label: "Billing" },
       { href: "/app/patient/messages", label: "Messages" },
     ];
   }
@@ -36,7 +37,10 @@ function getNavItems(role: string | null, providerPending: boolean) {
       { href: "/app/admin/workflows", label: "Workflows" },
       { href: "/app/admin/scheduling", label: "Scheduling" },
       { href: "/app/admin/appointments", label: "Appointments" },
+      { href: "/app/admin/billing", label: "Billing" },
+      { href: "/app/admin/claims", label: "Claims" },
       { href: "/app/admin/providers", label: "Providers" },
+      { href: "/app/admin/audit", label: "Audit" },
       { href: "/app/admin/messages", label: "Messages" },
     ];
   }

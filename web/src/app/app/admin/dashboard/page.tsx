@@ -63,6 +63,24 @@ export default function AdminDashboardPage() {
           >
             Open Appointment Queue
           </Link>
+          <Link
+            href="/app/admin/billing"
+            className="inline-flex rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Open Billing Ops
+          </Link>
+          <Link
+            href="/app/admin/claims"
+            className="inline-flex rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Open Claims
+          </Link>
+          <Link
+            href="/app/admin/audit"
+            className="inline-flex rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+          >
+            Open Audit Ops
+          </Link>
         </div>
       </section>
     </div>

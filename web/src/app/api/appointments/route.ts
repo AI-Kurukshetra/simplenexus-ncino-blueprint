@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { failure, success } from "@/lib/api/response";
+import { recordAuditLogBestEffort } from "@/lib/audit/store";
 import { requireRole, requireSession } from "@/lib/auth/guard";
 import {
   getProviderApprovalStatus,
@@ -198,6 +199,22 @@ export async function POST(request: NextRequest) {
         appointment.startsAt,
       ).toLocaleString()}.`,
       dedupeKey: `appointment_requested:provider:${appointment.id}`,
+    },
+  });
+
+  await recordAuditLogBestEffort({
+    actorUserId: session.user.id,
+    organizationId: appointment.organizationId,
+    action: "appointment.requested",
+    entityType: "appointment_request",
+    entityId: appointment.id,
+    details: {
+      patientUserId: appointment.patientUserId,
+      providerUserId: appointment.providerId,
+      providerSlotId: appointment.providerSlotId,
+      startsAt: appointment.startsAt,
+      appointmentType: appointment.appointmentType,
+      status: appointment.status,
     },
   });
 

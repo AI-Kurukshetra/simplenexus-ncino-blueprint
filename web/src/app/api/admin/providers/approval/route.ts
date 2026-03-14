@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { failure, success } from "@/lib/api/response";
+import { recordAuditLogForActorBestEffort } from "@/lib/audit/store";
 import { requireRole, requireSession } from "@/lib/auth/guard";
 import { setProviderApprovalStatus } from "@/lib/providers/store";
 
@@ -26,11 +27,18 @@ export async function POST(request: Request) {
     });
   }
 
-  const { error } = await setProviderApprovalStatus({
+  const { error, invalidState } = await setProviderApprovalStatus({
     providerUserId: parsed.data.providerUserId,
     decision: parsed.data.decision,
     approvedBy: session.user.id,
   });
+
+  if (invalidState) {
+    return NextResponse.json(
+      failure("INVALID_STATE", "Only pending providers can be approved or rejected"),
+      { status: 409 },
+    );
+  }
 
   if (error) {
     return NextResponse.json(
@@ -38,6 +46,18 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+
+  await recordAuditLogForActorBestEffort({
+    actorUser: session.user,
+    actorRole: session.role,
+    action: parsed.data.decision === "approved" ? "provider.approved" : "provider.rejected",
+    entityType: "provider_profile",
+    entityId: parsed.data.providerUserId,
+    details: {
+      providerUserId: parsed.data.providerUserId,
+      decision: parsed.data.decision,
+    },
+  });
 
   return NextResponse.json(success({ updated: true, decision: parsed.data.decision }));
 }

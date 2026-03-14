@@ -32,6 +32,7 @@ export function AppointmentsShell() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerSlots, setProviderSlots] = useState<ProviderSlot[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string>("");
+  const [selectedSlotId, setSelectedSlotId] = useState<string>("");
   const [status, setStatus] = useState<
     "idle" | "loading" | "error" | "created" | "onboarding_required" | "slot_unavailable"
   >("loading");
@@ -53,6 +54,7 @@ export function AppointmentsShell() {
         setProviders(fetchedProviders);
         if (fetchedProviders.length === 0) {
           setProviderSlots([]);
+          setSelectedSlotId("");
         }
         setSelectedProviderId((previous) =>
           previous || fetchedProviders[0]?.id || "",
@@ -82,11 +84,18 @@ export function AppointmentsShell() {
       .then((response) => response.json())
       .then((payload) => {
         if (!active) return;
-        setProviderSlots(payload?.data?.slots ?? []);
+        const fetchedSlots = (payload?.data?.slots ?? []) as ProviderSlot[];
+        setProviderSlots(fetchedSlots);
+        setSelectedSlotId((previous) =>
+          previous && fetchedSlots.some((slot) => slot.id === previous)
+            ? previous
+            : fetchedSlots[0]?.id || "",
+        );
       })
       .catch(() => {
         if (!active) return;
         setProviderSlots([]);
+        setSelectedSlotId("");
       });
 
     return () => {
@@ -96,7 +105,7 @@ export function AppointmentsShell() {
 
   async function bookAppointment(formData: FormData) {
     const providerId = String(formData.get("providerId") ?? "");
-    const slotId = String(formData.get("slotId") ?? "");
+    const slotId = selectedSlotId;
     const selectedSlot = providerSlots.find((slot) => slot.id === slotId);
 
     if (!selectedSlot || !providerId) {
@@ -149,7 +158,11 @@ export function AppointmentsShell() {
     );
     if (!response.ok) return;
     const payload = await response.json();
-    setProviderSlots(payload?.data?.slots ?? []);
+    const fetchedSlots = (payload?.data?.slots ?? []) as ProviderSlot[];
+    setProviderSlots(fetchedSlots);
+    setSelectedSlotId((previous) =>
+      previous && fetchedSlots.some((slot) => slot.id === previous) ? previous : fetchedSlots[0]?.id || "",
+    );
   }
 
   const providerMap = providers.reduce<Record<string, Provider>>((acc, provider) => {
@@ -159,7 +172,7 @@ export function AppointmentsShell() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Appointment Requests</h2>
         {status === "loading" ? <p className="text-sm text-slate-500">Loading...</p> : null}
         {status === "error" ? (
@@ -216,7 +229,7 @@ export function AppointmentsShell() {
         </ul>
       </section>
 
-      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Request Appointment</h2>
         <p className="text-xs text-slate-500">
           Requests must be approved by the selected provider.
@@ -228,7 +241,10 @@ export function AppointmentsShell() {
               name="providerId"
               required
               value={selectedProviderId}
-              onChange={(event) => setSelectedProviderId(event.target.value)}
+              onChange={(event) => {
+                setSelectedProviderId(event.target.value);
+                setSelectedSlotId("");
+              }}
               className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
             >
               {providers.length === 0 ? <option value="">No approved providers</option> : null}
@@ -239,24 +255,50 @@ export function AppointmentsShell() {
               ))}
             </select>
           </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium text-slate-700">Available Slot</span>
-            <select
-              name="slotId"
-              required
-              disabled={providerSlots.length === 0}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none ring-cyan-200 focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100"
-            >
-              {providerSlots.length === 0 ? (
-                <option value="">No available slots for this provider</option>
-              ) : null}
-              {providerSlots.map((slot) => (
-                <option key={slot.id} value={slot.id}>
-                  {new Date(slot.startsAt).toLocaleString()} - {new Date(slot.endsAt).toLocaleTimeString()}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="space-y-2 text-sm">
+            <p className="font-medium text-slate-700">Available Slot</p>
+            <input type="hidden" name="slotId" value={selectedSlotId} />
+            {providerSlots.length === 0 ? (
+              <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-slate-500">
+                No available slots for this provider.
+              </div>
+            ) : (
+              <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2">
+                {providerSlots.map((slot) => (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    onClick={() => setSelectedSlotId(slot.id)}
+                    className={`w-full rounded-md border px-3 py-2 text-left transition ${
+                      selectedSlotId === slot.id
+                        ? "border-sky-400 bg-sky-50"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <p className="text-sm font-medium text-slate-900">
+                      {new Date(slot.startsAt).toLocaleDateString()} •{" "}
+                      {new Date(slot.startsAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}{" "}
+                      -{" "}
+                      {new Date(slot.endsAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Duration:{" "}
+                      {Math.round(
+                        (new Date(slot.endsAt).valueOf() - new Date(slot.startsAt).valueOf()) / 60000,
+                      )}{" "}
+                      minutes
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <Field label="Reason" name="reason" placeholder="Follow-up consultation" />
           <label className="space-y-1 text-sm">
             <span className="font-medium text-slate-700">Appointment Type</span>
@@ -271,7 +313,7 @@ export function AppointmentsShell() {
           </label>
           <button
             type="submit"
-            disabled={providers.length === 0 || providerSlots.length === 0}
+            disabled={providers.length === 0 || providerSlots.length === 0 || !selectedSlotId}
             className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Submit request

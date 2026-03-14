@@ -61,6 +61,11 @@ export function ProviderApprovalTable() {
       body: JSON.stringify({ providerUserId, decision }),
     });
 
+    if (response.status === 409) {
+      await load(filter, false);
+      return;
+    }
+
     if (!response.ok) {
       setState("error");
       return;
@@ -120,22 +125,26 @@ export function ProviderApprovalTable() {
                   <Status status={provider.approvalStatus} />
                 </td>
                 <td className="px-2 py-2">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => update(provider.id, "approved")}
-                      className="rounded-md bg-emerald-700 px-2 py-1 text-xs text-white hover:bg-emerald-800"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => update(provider.id, "rejected")}
-                      className="rounded-md bg-rose-700 px-2 py-1 text-xs text-white hover:bg-rose-800"
-                    >
-                      Reject
-                    </button>
-                  </div>
+                  {provider.approvalStatus === "pending" ? (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => update(provider.id, "approved")}
+                        className="rounded-md bg-emerald-700 px-2 py-1 text-xs text-white hover:bg-emerald-800"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => update(provider.id, "rejected")}
+                        className="rounded-md bg-rose-700 px-2 py-1 text-xs text-white hover:bg-rose-800"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-slate-400">No actions</span>
+                  )}
                 </td>
               </tr>
             ))}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { failure, success } from "@/lib/api/response";
+import { recordAuditLogBestEffort } from "@/lib/audit/store";
 import { requireRole, requireSession } from "@/lib/auth/guard";
 import { ensureOrganizationContextForUser } from "@/lib/db/organization";
 import {
@@ -46,6 +47,17 @@ export async function PUT(request: Request) {
   const roleGuard = requireRole(session.role, ["admin", "super_admin"]);
   if (roleGuard) return roleGuard;
 
+  const context = await ensureOrganizationContextForUser({
+    user: session.user,
+    roleOverride: session.role,
+  });
+  if (context.error) {
+    return NextResponse.json(
+      failure("INTERNAL_ERROR", "Unable to resolve organization context"),
+      { status: 500 },
+    );
+  }
+
   const body = await request.json().catch(() => null);
   const parsed = schedulingPolicyUpdateSchema.safeParse(body);
   if (!parsed.success) {
@@ -65,6 +77,18 @@ export async function PUT(request: Request) {
       status: 500,
     });
   }
+
+  await recordAuditLogBestEffort({
+    actorUserId: session.user.id,
+    organizationId: context.organizationId,
+    action: "scheduling_policy.updated",
+    entityType: "scheduling_policy",
+    entityId: context.organizationId,
+    details: {
+      cancellationMinHours: parsed.data.cancellationMinHours,
+      rescheduleMinHours: parsed.data.rescheduleMinHours,
+    },
+  });
 
   return NextResponse.json(success({ policy: parsed.data, updated: true }));
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { failure, success } from "@/lib/api/response";
+import { recordAuditLogBestEffort } from "@/lib/audit/store";
 import {
   appendAppointmentEvent,
   findAppointmentRequestById,
@@ -190,6 +191,21 @@ export async function POST(request: Request) {
       },
     });
 
+    await recordAuditLogBestEffort({
+      actorUserId: session.user.id,
+      organizationId: appointment.organizationId,
+      action: "appointment.cancelled",
+      entityType: "appointment_request",
+      entityId: appointment.id,
+      details: {
+        actorRole: session.role,
+        patientUserId: appointment.patientUserId,
+        providerUserId: appointment.providerId,
+        startsAt: appointment.startsAt,
+        warning: slotWarning,
+      },
+    });
+
     return NextResponse.json(
       success({
         appointment: updated.appointment,
@@ -308,6 +324,23 @@ export async function POST(request: Request) {
         nextStartsAt,
       ).toLocaleString()}.`,
       dedupeKey: `rescheduled:provider:${appointment.id}:${nextStartsAt}`,
+    },
+  });
+
+  await recordAuditLogBestEffort({
+    actorUserId: session.user.id,
+    organizationId: appointment.organizationId,
+    action: "appointment.rescheduled",
+    entityType: "appointment_request",
+    entityId: appointment.id,
+    details: {
+      actorRole: session.role,
+      previousStartsAt: appointment.startsAt,
+      nextStartsAt,
+      previousSlotId: appointment.providerSlotId,
+      nextSlotId,
+      statusAfter: updated.appointment.status,
+      warning: reopenWarning,
     },
   });
 

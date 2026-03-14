@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { failure, success } from "@/lib/api/response";
+import { recordAuditLogBestEffort } from "@/lib/audit/store";
 import { requireRole, requireSession } from "@/lib/auth/guard";
 import { getProviderApprovalStatus } from "@/lib/auth/roles";
 import { decideAppointmentRequest, findAppointmentRequestById } from "@/lib/appointments/store";
@@ -112,6 +113,24 @@ export async function POST(request: Request) {
         found.appointment.startsAt,
       ).toLocaleString()}).`,
       dedupeKey: `${parsed.data.decision}:provider:${found.appointment.id}`,
+    },
+  });
+
+  await recordAuditLogBestEffort({
+    actorUserId: session.user.id,
+    organizationId: found.appointment.organizationId,
+    action:
+      parsed.data.decision === "approved"
+        ? "appointment.approved"
+        : "appointment.rejected",
+    entityType: "appointment_request",
+    entityId: found.appointment.id,
+    details: {
+      decision: parsed.data.decision,
+      patientUserId: found.appointment.patientUserId,
+      providerUserId: found.appointment.providerId,
+      startsAt: found.appointment.startsAt,
+      warning: slotReopenWarning,
     },
   });
 

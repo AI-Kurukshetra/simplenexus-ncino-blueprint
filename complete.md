@@ -4,8 +4,8 @@ Use this file as the single source of truth for implementation status against `N
 
 ## 1) Snapshot
 - Current date: 2026-03-14
-- Current stage: `Stage 3 - Continuity`
-- Overall completion: `71%`
+- Current stage: `Stage 4 - Revenue and Integrations`
+- Overall completion: `88%`
 - Health: `On Track`
 - Last updated by: `Codex`
 
@@ -21,7 +21,7 @@ Status legend:
 - `[-]` Stage 1: Foundation
 - `[-]` Stage 2: Patient and Provider Core
 - `[-]` Stage 3: Continuity
-- `[ ]` Stage 4: Revenue and Integrations
+- `[-]` Stage 4: Revenue and Integrations
 - `[ ]` Stage 5: Hardening
 - `[ ]` Stage 6: Third-Party Expansion
 
@@ -36,7 +36,7 @@ Status legend:
 - `[ ]` 8.7 Prescription Management
 - `[-]` 8.8 Messaging, Notifications, and Communication Hub
 - `[-]` 8.9 Care Plans, Tasks, and Workflow Automation
-- `[ ]` 8.10 Billing, Payments, and Claims Foundation
+- `[-]` 8.10 Billing, Payments, and Claims Foundation
 - `[ ]` 8.11 Labs, Interoperability, and External Integrations
 - `[ ]` 8.12 Analytics, Reporting, and Quality Measures
 - `[-]` 8.13 Admin Console and Platform Operations
@@ -51,10 +51,10 @@ Status legend:
 - `[x]` `NEXT_PUBLIC_SUPABASE_URL`
 - `[x]` `NEXT_PUBLIC_SUPABASE_ANON_KEY` (compatibility mapping supports `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`)
 - `[x]` `SUPABASE_SERVICE_ROLE_KEY`
-- `[ ]` `SUPABASE_PROJECT_REF`
-- `[ ]` `SUPABASE_DB_PASSWORD`
-- `[ ]` `DATABASE_URL`
-- `[ ]` `DIRECT_URL`
+- `[x]` `SUPABASE_PROJECT_REF`
+- `[x]` `SUPABASE_DB_PASSWORD`
+- `[x]` `DATABASE_URL`
+- `[x]` `DIRECT_URL`
 - `[ ]` `SUPABASE_ACCESS_TOKEN`
 
 ### 4.2 Product Decisions (Section 20)
@@ -70,7 +70,7 @@ Status legend:
 - `[ ]` UI covers loading/empty/success/error states
 - `[ ]` Role and tenant boundaries enforced
 - `[ ]` API schema validated
-- `[ ]` Audit logging implemented for sensitive actions
+- `[x]` Audit logging implemented for sensitive actions
 - `[ ]` Tests present at right level
 - `[ ]` Documentation updated
 
@@ -103,6 +103,11 @@ Status legend:
 | SQL cutover for scheduling and appointments | Codex + User | Completed | Migrated availability slots and appointment request/event stores/APIs from auth metadata to Supabase tables |
 | SQL cutover for tasks and notifications | Codex + User | Completed | Migrated care tasks and notification/reminder stores/APIs to Supabase tables with dedupe and reminder dispatch logic |
 | SQL cutover for provider/patient directories and scheduling policy | Codex + User | Completed | Migrated provider/patient admin stores, onboarding status updates, and scheduling policy persistence from auth metadata to SQL tables with profile backfill bridge |
+| Sensitive-action audit logging baseline | Codex + User | Completed | Added centralized audit-log helper and wired writes for provider approvals, scheduling policy updates, appointment mutations, availability mutations, task mutations, and onboarding submission |
+| Auth-to-SQL profile backfill utility | Codex + User | Completed | Added executable backfill script for memberships/user profiles/patient profiles/provider profiles and applied it in local environment |
+| Audit retry queue and admin alerting controls | Codex + User | Completed | Added SQL-backed audit failure queue, automatic failure enqueue, retry worker helpers, admin retry/status API, and admin audit operations UI |
+| Billing, payments, insurance, and claims foundation surfaces | Codex + User | In Progress | Added Stage 4 billing schema/APIs and wired patient/admin billing + claims UI routes and navigation |
+| Weekly recurring provider schedule and interactive slot booking UX | Codex + User | In Progress | Added weekly availability model, recurring slot generation, conflict skipping, and upgraded provider/patient scheduling UI |
 
 ## 7) Blockers / Risks
 
@@ -110,6 +115,9 @@ Status legend:
 |---|---|---|---|---|---|---|
 | 2026-03-14 | Migration | Role and provider approval gating still depend on JWT `app_metadata` in middleware/session checks | Incorrect access if DB approval state and JWT claims diverge temporarily | Continue dual-write to `app_metadata` on role/approval changes and add JWT refresh/session invalidation strategy in hardening stage | Codex + User | Open |
 | 2026-03-14 | Migration | Provider/patient SQL profile bootstrapping currently relies on lazy backfill during list/read flows | First-read latency spikes and inconsistent bootstrap timing for large user sets | Add explicit one-time migration script and scheduled backfill job for all existing users | Codex + User | Open |
+| 2026-03-14 | Observability | Audit failure queue retry execution currently depends on manual admin trigger/API call | Failed events may remain unresolved longer if no operator runs retries | Add scheduled/background retry automation and paging integration in hardening stage | Codex + User | Open |
+| 2026-03-14 | UX/Data | Admin invoice creation initially required direct patient user ID entry | Billing staff could make target-user mistakes | Added searchable patient picker backed by org patient directory in billing ops console | Codex + User | Mitigated |
+| 2026-03-14 | Timezone | Weekly slot generation uses timezone conversion logic without a dedicated tz library | DST-edge windows can produce rare off-by-one slot boundaries in some locales | Add timezone utility test matrix and consider `date-fns-tz`/`Temporal` adapter in hardening | Codex + User | Open |
 
 ## 8) Change Log
 
@@ -164,6 +172,26 @@ Status legend:
 | 2026-03-14 | Data Layer | Replaced metadata-based provider/patient directory and scheduling policy stores with SQL-backed repositories and onboarding profile writes | Codex |
 | 2026-03-14 | Auth/Data | Added SQL profile bootstrap in signup/invite flows and compatibility backfill for legacy users missing profile rows | Codex |
 | 2026-03-14 | Validation | Re-verified lint and production build after provider/patient/policy SQL cutover (`npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | Security | Added centralized audit logging helper and integrated sensitive mutation route coverage (provider approvals, scheduling policy, appointments, availability, tasks, onboarding submit) | Codex |
+| 2026-03-14 | Validation | Re-verified lint and production build after audit-logging integration (`npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | Data Migration | Added `backfill-auth-to-sql` script, added package commands, documented usage, and executed dry-run + apply in local Supabase | Codex |
+| 2026-03-14 | Validation | Re-verified lint and production build after backfill utility implementation (`npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | Security | Added `audit_log_failures` retry queue migration and enhanced audit store with automatic failure enqueue + retry processing helpers | Codex |
+| 2026-03-14 | Admin Ops | Added admin audit retry API (`GET/POST /api/admin/audit/retry`) and admin audit operations page with retry controls and warning levels | Codex |
+| 2026-03-14 | Validation | Applied local migration for audit failure queue and re-verified lint/build (`supabase db push --local`, `npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | Billing | Added billing/payments/insurance/claims schema and APIs with patient/admin role coverage for Stage 4 foundation | Codex |
+| 2026-03-14 | UI | Added patient billing page, admin billing ops + claims pages/components, and updated role navigation/dashboard links | Codex |
+| 2026-03-14 | Validation | Re-verified lint and production build after billing and claims surfaces (`npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | UX | Replaced manual patient ID entry in admin invoice creation with searchable patient directory picker | Codex |
+| 2026-03-14 | Validation | Re-verified lint and production build after admin billing patient-picker update (`npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | Billing | Added admin claim creation flow from invoices (`POST /api/billing/claims`) with claim event and audit logging | Codex |
+| 2026-03-14 | Validation | Re-verified lint and production build after claim creation flow update (`npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | Scheduling | Added weekly recurring provider schedule model and migration with weekday windows, timezone, and slot-duration controls | Codex |
+| 2026-03-14 | Scheduling | Added provider weekly schedule API (`PUT /api/provider/availability`) with conflict-aware recurring slot generation | Codex |
+| 2026-03-14 | UI | Upgraded provider schedule and patient booking UIs to interactive schedule/slot-card experiences | Codex |
+| 2026-03-14 | Validation | Re-verified lint and production build after recurring schedule + scheduling UI upgrades (`npm run lint`, `npm run build -- --webpack`) | Codex |
+| 2026-03-14 | Database | Applied latest local migrations including weekly schedule foundation (`supabase db push --local`) | Codex |
+| 2026-03-14 | Bugfix | Fixed provider weekly schedule 400 payload issue by defaulting start/end times for enabled days on toggle/save | Codex |
 
 ## 9) Weekly Update Template
 
@@ -237,6 +265,7 @@ ID format: `STG{n}-MOD{8.x}-TASK-{nnn}`
 | STG2-MOD8.3-TASK-003 | Stage 2 | 8.3 | Provider availability manager and slot APIs | `$api-contract-enforcer`, `$virtual-health-ui`, `$implementation-progress-tracker` | `web/src/lib/scheduling/schemas.ts`, `web/src/lib/scheduling/store.ts`, `web/src/app/api/provider/availability/route.ts`, `web/src/app/api/providers/availability/route.ts`, `web/src/components/provider/schedule-manager.tsx`, `web/src/app/app/provider/schedule/page.tsx`, `web/src/components/layout/app-shell.tsx`, `web/src/app/app/provider/dashboard/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
 | STG2-MOD8.3-TASK-004 | Stage 2 | 8.3 | Slot-based booking enforcement and patient appointment detail experience | `$api-contract-enforcer`, `$virtual-health-ui`, `$implementation-progress-tracker` | `web/src/app/api/appointments/route.ts`, `web/src/app/api/appointments/decision/route.ts`, `web/src/lib/appointments/store.ts`, `web/src/components/patient/appointments-shell.tsx`, `web/src/app/app/patient/appointments/[id]/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
 | STG2-MOD8.3-TASK-005 | Stage 2 | 8.3 | Appointment cancel/reschedule workflow with policy-window enforcement | `$api-contract-enforcer`, `$implementation-progress-tracker` | `web/src/app/api/appointments/manage/route.ts`, `web/src/lib/scheduling/policies.ts`, `web/src/lib/scheduling/store.ts`, `web/src/lib/appointments/store.ts`, `web/src/components/patient/appointment-detail-actions.tsx`, `web/src/app/app/patient/appointments/[id]/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
+| STG2-MOD8.3-TASK-006 | Stage 2 | 8.3 | Weekly recurring provider scheduling, auto-slot generation, and upgraded booking UX | `$supabase-rls-guardian`, `$api-contract-enforcer`, `$virtual-health-ui`, `$implementation-progress-tracker` | `supabase/migrations/20260314190000_provider_weekly_schedule_foundation.sql`, `web/src/lib/scheduling/schemas.ts`, `web/src/lib/scheduling/store.ts`, `web/src/app/api/provider/availability/route.ts`, `web/src/components/provider/schedule-manager.tsx`, `web/src/components/patient/appointments-shell.tsx`, `web/src/app/app/provider/schedule/page.tsx`, `supabase db push --local`, `npm run lint`, `npm run build -- --webpack` | Codex + User | In Progress | 2026-03-14 |
 | STG2-MOD8.13-TASK-003 | Stage 2 | 8.13 | Admin scheduling policy configuration controls | `$api-contract-enforcer`, `$virtual-health-ui`, `$implementation-progress-tracker` | `web/src/app/api/admin/scheduling-policy/route.ts`, `web/src/components/admin/scheduling-policy-form.tsx`, `web/src/app/app/admin/scheduling/page.tsx`, `web/src/components/layout/app-shell.tsx`, `web/src/app/app/admin/dashboard/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
 | STG3-MOD8.8-TASK-001 | Stage 3 | 8.8 | Notification inbox APIs and role message center UI | `$api-contract-enforcer`, `$virtual-health-ui`, `$implementation-progress-tracker` | `web/src/lib/notifications/store.ts`, `web/src/app/api/notifications/route.ts`, `web/src/app/api/notifications/read/route.ts`, `web/src/components/shared/notification-center.tsx`, `web/src/app/app/patient/messages/page.tsx`, `web/src/app/app/provider/messages/page.tsx`, `web/src/app/app/admin/messages/page.tsx`, `web/src/components/layout/app-shell.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
 | STG3-MOD8.8-TASK-002 | Stage 3 | 8.8 | Reminder dispatch simulation and appointment notification publishing | `$api-contract-enforcer`, `$implementation-progress-tracker` | `web/src/app/api/notifications/reminders/run/route.ts`, `web/src/lib/notifications/store.ts`, `web/src/lib/appointments/store.ts`, `web/src/app/api/appointments/route.ts`, `web/src/app/api/appointments/decision/route.ts`, `web/src/app/api/appointments/manage/route.ts`, `web/src/app/app/patient/appointments/[id]/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
@@ -245,7 +274,10 @@ ID format: `STG{n}-MOD{8.x}-TASK-{nnn}`
 | STG1-MOD8.1-TASK-005 | Stage 1 | 8.1 | Core Supabase SQL schema and RLS baseline migration | `$supabase-rls-guardian`, `$implementation-progress-tracker` | `supabase/migrations/20260314094051_core_schema_rls.sql`, `supabase db push` (remote project `zsdokbebjfyxacuwwdan`) | Codex + User | Done | 2026-03-14 |
 | STG1-MOD8.1-TASK-006 | Stage 1 | 8.1 | SQL repository cutover for scheduling/appointments/tasks/notifications | `$api-contract-enforcer`, `$supabase-rls-guardian`, `$implementation-progress-tracker` | `web/src/lib/db/organization.ts`, `web/src/lib/scheduling/store.ts`, `web/src/lib/appointments/store.ts`, `web/src/lib/tasks/store.ts`, `web/src/lib/notifications/store.ts`, `web/src/app/api/provider/availability/route.ts`, `web/src/app/api/appointments/route.ts`, `web/src/app/api/notifications/route.ts`, `web/src/app/app/patient/appointments/[id]/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
 | STG1-MOD8.1-TASK-007 | Stage 1 | 8.1 | SQL repository cutover for provider/patient directories, onboarding status, and scheduling policy | `$api-contract-enforcer`, `$supabase-rls-guardian`, `$implementation-progress-tracker` | `web/src/lib/providers/store.ts`, `web/src/lib/patients/store.ts`, `web/src/lib/scheduling/policies.ts`, `web/src/lib/scheduling/store.ts`, `web/src/lib/auth/actions.ts`, `web/src/app/api/patient/onboarding/draft/route.ts`, `web/src/app/api/patient/onboarding/submit/route.ts`, `web/src/app/api/admin/scheduling-policy/route.ts`, `web/src/app/api/appointments/route.ts`, `web/src/app/api/appointments/manage/route.ts`, `web/src/app/app/patient/dashboard/page.tsx`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
-|  |  |  |  |  |  |  |  |  |
+| STG3-MOD8.13-TASK-004 | Stage 3 | 8.13 | Sensitive-action audit logging baseline across critical mutation routes | `$api-contract-enforcer`, `$implementation-progress-tracker` | `web/src/lib/audit/store.ts`, `web/src/app/api/admin/providers/approval/route.ts`, `web/src/app/api/admin/scheduling-policy/route.ts`, `web/src/app/api/appointments/route.ts`, `web/src/app/api/appointments/decision/route.ts`, `web/src/app/api/appointments/manage/route.ts`, `web/src/app/api/provider/availability/route.ts`, `web/src/app/api/tasks/route.ts`, `web/src/app/api/patient/onboarding/submit/route.ts`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
+| STG5-MOD8.13-TASK-001 | Stage 5 | 8.13 | One-time auth-to-SQL profile backfill tooling for migration hardening | `$supabase-rls-guardian`, `$implementation-progress-tracker` | `web/scripts/backfill-auth-to-sql.mjs`, `web/package.json`, `web/README.md`, `npm run backfill:profiles:dry`, `npm run backfill:profiles`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
+| STG5-MOD8.13-TASK-002 | Stage 5 | 8.13 | Audit failure retry/alerting controls for reliability hardening | `$supabase-rls-guardian`, `$api-contract-enforcer`, `$implementation-progress-tracker` | `supabase/migrations/20260314164500_audit_failure_queue.sql`, `web/src/lib/audit/store.ts`, `web/src/app/api/admin/audit/retry/route.ts`, `web/src/components/admin/audit-retry-panel.tsx`, `web/src/app/app/admin/audit/page.tsx`, `web/src/components/layout/app-shell.tsx`, `web/src/app/app/admin/dashboard/page.tsx`, `supabase db push --local`, `npm run lint`, `npm run build -- --webpack` | Codex + User | Done | 2026-03-14 |
+| STG4-MOD8.10-TASK-001 | Stage 4 | 8.10 | Billing, payments, insurance, and claims foundation (schema, APIs, and role-based UI surfaces) | `$supabase-rls-guardian`, `$api-contract-enforcer`, `$virtual-health-ui`, `$implementation-progress-tracker` | `supabase/migrations/20260314172000_billing_payments_claims_foundation.sql`, `web/src/lib/billing/schemas.ts`, `web/src/lib/billing/store.ts`, `web/src/app/api/billing/invoices/route.ts`, `web/src/app/api/billing/payments/manual/route.ts`, `web/src/app/api/billing/insurance/route.ts`, `web/src/app/api/billing/insurance/verify/route.ts`, `web/src/app/api/billing/claims/route.ts`, `web/src/components/patient/billing-center.tsx`, `web/src/components/admin/billing-ops-panel.tsx`, `web/src/components/admin/claims-table.tsx`, `web/src/app/app/patient/billing/page.tsx`, `web/src/app/app/admin/billing/page.tsx`, `web/src/app/app/admin/claims/page.tsx`, `web/src/components/layout/app-shell.tsx`, `web/src/app/app/patient/dashboard/page.tsx`, `web/src/app/app/admin/dashboard/page.tsx` | Codex + User | In Progress | 2026-03-14 |
 
 ## 13) Task Status Lifecycle
 

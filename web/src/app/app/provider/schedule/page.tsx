@@ -8,7 +8,7 @@ export default function ProviderSchedulePage() {
           Schedule Management
         </h1>
         <p className="mt-1 text-sm text-slate-600">
-          Manage provider availability for patient booking requests.
+          Configure recurring weekly clinic hours, slot duration, and conflict-safe booking windows.
         </p>
       </header>
       <ScheduleManager />

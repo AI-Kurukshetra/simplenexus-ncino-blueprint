@@ -72,6 +72,12 @@ export default async function PatientDashboardPage() {
           Open messages
         </Link>
         <Link
+          href="/app/patient/billing"
+          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+        >
+          Open billing
+        </Link>
+        <Link
           href="/app/patient/care-plans"
           className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
         >

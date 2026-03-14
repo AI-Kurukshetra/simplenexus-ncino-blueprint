@@ -7,27 +7,74 @@ type Slot = {
   startsAt: string;
   endsAt: string;
   status: "available" | "booked" | "blocked";
+  generatedFrom: "manual" | "weekly_template";
+  weeklyDayOfWeek?: number;
   createdAt: string;
 };
 
-type UiState = "loading" | "idle" | "error" | "saved";
+type WeeklyWindow = {
+  dayOfWeek: number;
+  label: string;
+  enabled: boolean;
+  startTime?: string;
+  endTime?: string;
+};
+
+type WeeklySchedule = {
+  timezone: string;
+  slotDurationMinutes: 15 | 30 | 45 | 60;
+  horizonDays: number;
+  windows: WeeklyWindow[];
+};
+
+type UiState = "loading" | "idle" | "saving" | "error";
+
+const DEFAULT_WINDOWS: WeeklyWindow[] = [
+  { dayOfWeek: 0, label: "Sunday", enabled: false },
+  { dayOfWeek: 1, label: "Monday", enabled: true, startTime: "10:00", endTime: "18:00" },
+  { dayOfWeek: 2, label: "Tuesday", enabled: true, startTime: "10:00", endTime: "18:00" },
+  { dayOfWeek: 3, label: "Wednesday", enabled: true, startTime: "10:00", endTime: "18:00" },
+  { dayOfWeek: 4, label: "Thursday", enabled: true, startTime: "10:00", endTime: "18:00" },
+  { dayOfWeek: 5, label: "Friday", enabled: true, startTime: "10:00", endTime: "18:00" },
+  { dayOfWeek: 6, label: "Saturday", enabled: false },
+];
+
+function guessedTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
 
 export function ScheduleManager() {
   const [slots, setSlots] = useState<Slot[]>([]);
+  const [weekly, setWeekly] = useState<WeeklySchedule>({
+    timezone: guessedTimeZone(),
+    slotDurationMinutes: 30,
+    horizonDays: 56,
+    windows: DEFAULT_WINDOWS,
+  });
   const [state, setState] = useState<UiState>("loading");
   const [message, setMessage] = useState<string | null>(null);
 
   async function load(showLoading = true) {
     if (showLoading) setState("loading");
-
     const response = await fetch("/api/provider/availability", { cache: "no-store" });
     if (!response.ok) {
       setState("error");
+      setMessage("Unable to load weekly schedule.");
       return;
     }
 
     const payload = await response.json();
-    setSlots(payload?.data?.slots ?? []);
+    const fetchedSlots = (payload?.data?.slots ?? []) as Slot[];
+    const fetchedWeekly = payload?.data?.weeklySchedule as WeeklySchedule | undefined;
+    setSlots(fetchedSlots);
+    if (fetchedWeekly?.windows?.length === 7) {
+      setWeekly({
+        timezone: fetchedWeekly.timezone || guessedTimeZone(),
+        slotDurationMinutes: fetchedWeekly.slotDurationMinutes || 30,
+        horizonDays: fetchedWeekly.horizonDays || 56,
+        windows: fetchedWeekly.windows,
+      });
+    }
     setState("idle");
   }
 
@@ -35,15 +82,29 @@ export function ScheduleManager() {
     let active = true;
 
     fetch("/api/provider/availability", { cache: "no-store" })
-      .then((response) => response.json())
+      .then((response) => {
+        if (!response.ok) throw new Error("Failed to load");
+        return response.json();
+      })
       .then((payload) => {
         if (!active) return;
-        setSlots(payload?.data?.slots ?? []);
+        const fetchedSlots = (payload?.data?.slots ?? []) as Slot[];
+        const fetchedWeekly = payload?.data?.weeklySchedule as WeeklySchedule | undefined;
+        setSlots(fetchedSlots);
+        if (fetchedWeekly?.windows?.length === 7) {
+          setWeekly({
+            timezone: fetchedWeekly.timezone || guessedTimeZone(),
+            slotDurationMinutes: fetchedWeekly.slotDurationMinutes || 30,
+            horizonDays: fetchedWeekly.horizonDays || 56,
+            windows: fetchedWeekly.windows,
+          });
+        }
         setState("idle");
       })
       .catch(() => {
         if (!active) return;
         setState("error");
+        setMessage("Unable to load weekly schedule.");
       });
 
     return () => {
@@ -51,124 +112,252 @@ export function ScheduleManager() {
     };
   }, []);
 
-  async function createSlot(formData: FormData) {
-    const startsAtRaw = String(formData.get("startsAt") ?? "");
-    const endsAtRaw = String(formData.get("endsAt") ?? "");
-    const startsAt = new Date(startsAtRaw);
-    const endsAt = new Date(endsAtRaw);
-
-    if (Number.isNaN(startsAt.valueOf()) || Number.isNaN(endsAt.valueOf())) {
-      setState("error");
-      setMessage("Invalid slot time.");
-      return;
-    }
+  async function saveWeeklySchedule() {
+    setState("saving");
+    setMessage(null);
 
     const response = await fetch("/api/provider/availability", {
-      method: "POST",
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        startsAt: startsAt.toISOString(),
-        endsAt: endsAt.toISOString(),
+        timezone: weekly.timezone,
+        slotDurationMinutes: String(weekly.slotDurationMinutes),
+        horizonDays: weekly.horizonDays,
+        windows: weekly.windows.map((window) => ({
+          dayOfWeek: window.dayOfWeek,
+          enabled: window.enabled,
+          startTime: window.enabled ? (window.startTime ?? "09:00") : undefined,
+          endTime: window.enabled ? (window.endTime ?? "17:00") : undefined,
+        })),
       }),
     });
 
+    const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      if (payload?.error?.code === "SLOT_CONFLICT") {
-        setState("error");
-        setMessage("Slot conflicts with an existing block or availability.");
-        return;
-      }
-
       setState("error");
-      setMessage("Unable to create slot.");
+      setMessage(payload?.error?.message ?? "Unable to save weekly schedule.");
       return;
     }
 
-    setMessage("Availability slot added.");
-    setState("saved");
-    await load(false);
+    setSlots((payload?.data?.slots ?? []) as Slot[]);
+    const generatedCount = Number(payload?.data?.generatedCount ?? 0);
+    const skippedConflicts = Number(payload?.data?.skippedConflicts ?? 0);
+    setState("idle");
+    setMessage(
+      `Weekly schedule saved. Generated ${generatedCount} slots${skippedConflicts > 0 ? `, skipped ${skippedConflicts} conflicts` : ""}.`,
+    );
   }
 
   async function deleteSlot(slotId: string) {
+    setState("saving");
+    setMessage(null);
+
     const response = await fetch(`/api/provider/availability?slotId=${encodeURIComponent(slotId)}`, {
       method: "DELETE",
     });
 
+    const payload = await response.json().catch(() => null);
     if (!response.ok) {
       setState("error");
-      setMessage("Unable to remove this slot.");
+      setMessage(payload?.error?.message ?? "Unable to remove slot.");
       return;
     }
 
+    setSlots((previous) => previous.filter((slot) => slot.id !== slotId));
+    setState("idle");
     setMessage("Slot removed.");
-    await load(false);
   }
 
-  const totalSlots = slots.length;
+  function updateWindow(dayOfWeek: number, patch: Partial<WeeklyWindow>) {
+    setWeekly((previous) => ({
+      ...previous,
+      windows: previous.windows.map((window) =>
+        window.dayOfWeek === dayOfWeek ? { ...window, ...patch } : window,
+      ),
+    }));
+  }
+
+  const enabledDays = weekly.windows.filter((window) => window.enabled).length;
   const availableCount = slots.filter((slot) => slot.status === "available").length;
   const bookedCount = slots.filter((slot) => slot.status === "booked").length;
 
   return (
-    <div className="space-y-4">
-      <section className="grid gap-3 sm:grid-cols-3">
-        <MetricCard label="Total Slots" value={String(totalSlots)} />
-        <MetricCard label="Available" value={String(availableCount)} />
+    <div className="space-y-5">
+      <section className="grid gap-3 md:grid-cols-4">
+        <MetricCard label="Enabled Days" value={`${enabledDays}/7`} />
+        <MetricCard label="Slot Duration" value={`${weekly.slotDurationMinutes} min`} />
+        <MetricCard label="Upcoming Available" value={String(availableCount)} />
         <MetricCard label="Booked" value={String(bookedCount)} />
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Add Availability Slot</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Set clinic availability for patient booking. Each slot should be 15 to 240 minutes.
-        </p>
-        <form action={createSlot} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Weekly Clinic Schedule</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Set recurring availability by weekday. The system auto-generates slots and skips conflicts.
+            </p>
+          </div>
+          <span className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+            Timezone: {weekly.timezone}
+          </span>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="space-y-1 text-sm">
-            <span className="font-medium text-slate-700">Start</span>
-            <input
-              type="datetime-local"
-              name="startsAt"
-              required
-              className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
-            />
+            <span className="font-medium text-slate-700">Slot Duration</span>
+            <select
+              value={String(weekly.slotDurationMinutes)}
+              onChange={(event) =>
+                setWeekly((previous) => ({
+                  ...previous,
+                  slotDurationMinutes: Number(event.target.value) as 15 | 30 | 45 | 60,
+                }))
+              }
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
+            >
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="45">45 minutes</option>
+              <option value="60">60 minutes</option>
+            </select>
           </label>
           <label className="space-y-1 text-sm">
-            <span className="font-medium text-slate-700">End</span>
-            <input
-              type="datetime-local"
-              name="endsAt"
-              required
-              className="w-full rounded-md border border-slate-300 px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
-            />
+            <span className="font-medium text-slate-700">Generation Horizon</span>
+            <select
+              value={String(weekly.horizonDays)}
+              onChange={(event) =>
+                setWeekly((previous) => ({
+                  ...previous,
+                  horizonDays: Number(event.target.value),
+                }))
+              }
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 outline-none ring-cyan-200 focus:ring-2"
+            >
+              <option value="28">4 weeks</option>
+              <option value="56">8 weeks</option>
+              <option value="84">12 weeks</option>
+            </select>
           </label>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[860px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-slate-500">
+                <th className="px-2 py-2 font-medium">Day</th>
+                <th className="px-2 py-2 font-medium">Enabled</th>
+                <th className="px-2 py-2 font-medium">Start Time</th>
+                <th className="px-2 py-2 font-medium">End Time</th>
+                <th className="px-2 py-2 font-medium">Clinic Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              {weekly.windows.map((window) => (
+                <tr key={window.dayOfWeek} className="border-b border-slate-100">
+                  <td className="px-2 py-2 font-medium text-slate-900">{window.label}</td>
+                  <td className="px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateWindow(window.dayOfWeek, {
+                          enabled: !window.enabled,
+                          startTime: !window.enabled
+                            ? (window.startTime ?? "09:00")
+                            : window.startTime,
+                          endTime: !window.enabled
+                            ? (window.endTime ?? "17:00")
+                            : window.endTime,
+                        })
+                      }
+                      className={`rounded-full px-3 py-1 text-xs ${
+                        window.enabled
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-slate-200 text-slate-700"
+                      }`}
+                    >
+                      {window.enabled ? "Enabled" : "Disabled"}
+                    </button>
+                  </td>
+                  <td className="px-2 py-2">
+                    <input
+                      type="time"
+                      value={window.startTime ?? "09:00"}
+                      disabled={!window.enabled}
+                      onChange={(event) =>
+                        updateWindow(window.dayOfWeek, { startTime: event.target.value })
+                      }
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    />
+                  </td>
+                  <td className="px-2 py-2">
+                    <input
+                      type="time"
+                      value={window.endTime ?? "17:00"}
+                      disabled={!window.enabled}
+                      onChange={(event) =>
+                        updateWindow(window.dayOfWeek, { endTime: event.target.value })
+                      }
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-slate-600">
+                    {window.enabled ? (
+                      <span>
+                        {window.startTime && window.endTime && window.startTime < "12:00"
+                          ? "Morning or mixed clinic"
+                          : "Afternoon or evening clinic"}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">No clinic</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
-            type="submit"
-            className="self-end rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+            type="button"
+            onClick={() => void saveWeeklySchedule()}
+            disabled={state === "saving"}
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Add Slot
+            Apply Weekly Schedule
           </button>
-        </form>
+          <button
+            type="button"
+            onClick={() => void load(false)}
+            disabled={state === "saving"}
+            className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Refresh
+          </button>
+        </div>
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Availability Queue</h2>
-        {state === "loading" ? <p className="mt-3 text-sm text-slate-500">Loading...</p> : null}
-        {state === "error" ? (
-          <p className="mt-3 text-sm text-rose-600">{message ?? "Unable to load availability."}</p>
-        ) : null}
-        {state === "saved" && message ? (
-          <p className="mt-3 text-sm text-emerald-700">{message}</p>
-        ) : null}
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900">Generated Availability</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Patients automatically see these slots while booking appointments.
+        </p>
+
+        {state === "loading" ? <p className="mt-3 text-sm text-slate-500">Loading schedule...</p> : null}
+        {state === "error" && message ? <p className="mt-3 text-sm text-rose-600">{message}</p> : null}
+        {state !== "error" && message ? <p className="mt-3 text-sm text-emerald-700">{message}</p> : null}
 
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[760px] border-collapse text-sm">
+          <table className="w-full min-w-[980px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-slate-500">
                 <th className="px-2 py-2 font-medium">Start</th>
                 <th className="px-2 py-2 font-medium">End</th>
                 <th className="px-2 py-2 font-medium">Duration</th>
+                <th className="px-2 py-2 font-medium">Source</th>
                 <th className="px-2 py-2 font-medium">Status</th>
-                <th className="px-2 py-2 font-medium">Actions</th>
+                <th className="px-2 py-2 font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -178,6 +367,17 @@ export function ScheduleManager() {
                   <td className="px-2 py-2 text-slate-700">{new Date(slot.endsAt).toLocaleString()}</td>
                   <td className="px-2 py-2 text-slate-700">{durationLabel(slot.startsAt, slot.endsAt)}</td>
                   <td className="px-2 py-2">
+                    {slot.generatedFrom === "weekly_template" ? (
+                      <span className="rounded-full bg-cyan-100 px-2 py-1 text-xs text-cyan-800">
+                        Weekly Template
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-slate-200 px-2 py-1 text-xs text-slate-700">
+                        Manual
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-2 py-2">
                     <SlotStatus status={slot.status} />
                   </td>
                   <td className="px-2 py-2">
@@ -186,19 +386,20 @@ export function ScheduleManager() {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => deleteSlot(slot.id)}
-                        className="rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50"
+                        onClick={() => void deleteSlot(slot.id)}
+                        disabled={state === "saving"}
+                        className="rounded-md border border-rose-300 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        Delete
+                        Remove
                       </button>
                     )}
                   </td>
                 </tr>
               ))}
-              {slots.length === 0 && state === "idle" ? (
+              {slots.length === 0 && state !== "loading" ? (
                 <tr>
-                  <td colSpan={5} className="px-2 py-4 text-center text-slate-500">
-                    No availability slots added yet.
+                  <td colSpan={6} className="px-2 py-4 text-center text-slate-500">
+                    No slots generated yet. Configure weekly schedule and apply.
                   </td>
                 </tr>
               ) : null}
@@ -212,7 +413,7 @@ export function ScheduleManager() {
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <article className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+    <article className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-slate-900">{value}</p>
     </article>

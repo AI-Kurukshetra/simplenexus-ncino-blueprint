@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "backfill:profiles": "node scripts/backfill-auth-to-sql.mjs",
+    "backfill:profiles:dry": "node scripts/backfill-auth-to-sql.mjs --dry-run"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",

@@ -38,3 +38,40 @@ export const providerSlotCreateSchema = z
 export const providerSlotDeleteSchema = z.object({
   slotId: z.string().min(1),
 });
+
+export const providerWeeklyScheduleWindowSchema = z
+  .object({
+    dayOfWeek: z.number().int().min(0).max(6),
+    enabled: z.boolean(),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.enabled) return;
+    if (!value.startTime || !value.endTime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Start and end time are required when day is enabled",
+      });
+      return;
+    }
+
+    const [startHour, startMinute] = value.startTime.split(":").map(Number);
+    const [endHour, endMinute] = value.endTime.split(":").map(Number);
+    const start = startHour * 60 + startMinute;
+    const end = endHour * 60 + endMinute;
+
+    if (end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "End time must be after start time",
+      });
+    }
+  });
+
+export const providerWeeklyScheduleUpsertSchema = z.object({
+  timezone: z.string().min(1).max(80),
+  slotDurationMinutes: z.enum(["15", "30", "45", "60"]).transform(Number),
+  horizonDays: z.number().int().min(7).max(120).default(56),
+  windows: z.array(providerWeeklyScheduleWindowSchema).length(7),
+});

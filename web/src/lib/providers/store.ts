@@ -111,14 +111,33 @@ export async function setProviderApprovalStatus(params: {
 }) {
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin.auth.admin.getUserById(params.providerUserId);
-  if (error || !data.user) return { error: error ?? new Error("Provider not found") };
+  if (error || !data.user) {
+    return { error: error ?? new Error("Provider not found"), invalidState: false };
+  }
 
   const context = await ensureOrganizationContextForUser({
     user: data.user,
     roleOverride: "provider",
   });
   if (context.error || !context.organizationId) {
-    return { error: context.error ?? new Error("Unable to resolve provider organization") };
+    return {
+      error: context.error ?? new Error("Unable to resolve provider organization"),
+      invalidState: false,
+    };
+  }
+
+  const { data: profileState, error: profileStateError } = await admin
+    .from("provider_profiles")
+    .select("approval_status")
+    .eq("user_id", params.providerUserId)
+    .maybeSingle();
+  if (profileStateError) return { error: profileStateError, invalidState: false };
+  if (!profileState) return { error: new Error("Provider profile not found"), invalidState: false };
+  if (profileState.approval_status !== "pending") {
+    return {
+      error: new Error("Provider decision already finalized"),
+      invalidState: true,
+    };
   }
 
   const approvalAt = new Date().toISOString();
@@ -132,9 +151,9 @@ export async function setProviderApprovalStatus(params: {
     })
     .eq("user_id", params.providerUserId);
 
-  if (profileError) return { error: profileError };
+  if (profileError) return { error: profileError, invalidState: false };
 
-  return admin.auth.admin.updateUserById(params.providerUserId, {
+  const { error: metadataError } = await admin.auth.admin.updateUserById(params.providerUserId, {
     app_metadata: {
       ...(data.user.app_metadata ?? {}),
       role: "provider",
@@ -147,4 +166,6 @@ export async function setProviderApprovalStatus(params: {
       providerApprovedBy: params.approvedBy,
     },
   });
+
+  return { error: metadataError, invalidState: false };
 }

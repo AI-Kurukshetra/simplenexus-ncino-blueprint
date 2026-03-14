@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { failure, success } from "@/lib/api/response";
+import { recordAuditLogForActorBestEffort } from "@/lib/audit/store";
 import { requireRole, requireSession } from "@/lib/auth/guard";
 import { getProviderApprovalStatus } from "@/lib/auth/roles";
 import {
@@ -153,6 +154,22 @@ export async function POST(request: Request) {
     });
   }
 
+  await recordAuditLogForActorBestEffort({
+    actorUser: session.user,
+    actorRole: session.role,
+    action: "care_task.created",
+    entityType: "care_task",
+    entityId: result.task.id,
+    details: {
+      patientUserId: result.task.patientUserId,
+      assignedProviderId: result.task.assignedProviderId,
+      priority: result.task.priority,
+      dueAt: result.task.dueAt,
+      status: result.task.status,
+      assignedByRole: session.role,
+    },
+  });
+
   return NextResponse.json(success({ task: result.task }), { status: 201 });
 }
 
@@ -212,6 +229,19 @@ export async function PATCH(request: Request) {
       status: 500,
     });
   }
+
+  await recordAuditLogForActorBestEffort({
+    actorUser: session.user,
+    actorRole: session.role,
+    action: "care_task.status_updated",
+    entityType: "care_task",
+    entityId: result.task.id,
+    details: {
+      patientUserId: result.task.patientUserId,
+      nextStatus: result.task.status,
+      actorRole: session.role,
+    },
+  });
 
   return NextResponse.json(success({ task: result.task, updated: true }));
 }

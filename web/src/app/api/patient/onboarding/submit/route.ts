@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { failure, success } from "@/lib/api/response";
+import { recordAuditLogBestEffort } from "@/lib/audit/store";
 import { requireRole, requireSession } from "@/lib/auth/guard";
 import { ensureOrganizationContextForUser } from "@/lib/db/organization";
 import { onboardingSubmitSchema } from "@/lib/onboarding/schemas";
@@ -58,6 +59,18 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+
+  await recordAuditLogBestEffort({
+    actorUserId: session.user.id,
+    organizationId: context.organizationId,
+    action: "patient_onboarding.submitted",
+    entityType: "patient_profile",
+    entityId: session.user.id,
+    details: {
+      submittedAt,
+      readyForScheduling: true,
+    },
+  });
 
   const response = NextResponse.json(
     success({
