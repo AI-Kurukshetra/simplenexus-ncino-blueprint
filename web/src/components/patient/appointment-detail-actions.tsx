@@ -89,6 +89,11 @@ export function AppointmentDetailActions({
       setMessage("Choose an available slot.");
       return;
     }
+    const startsAtDate = new Date(slot.startsAt);
+    if (Number.isNaN(startsAtDate.valueOf())) {
+      setMessage("Selected slot has invalid timing. Refresh and retry.");
+      return;
+    }
 
     setLoading(true);
     setMessage(null);
@@ -100,7 +105,7 @@ export function AppointmentDetailActions({
         appointmentId,
         action: "reschedule",
         nextSlotId,
-        nextStartsAt: slot.startsAt,
+        nextStartsAt: startsAtDate.toISOString(),
       }),
     });
 

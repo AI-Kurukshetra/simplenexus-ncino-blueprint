@@ -291,7 +291,8 @@ export async function notifyAppointmentParticipants(params: {
     | "appointment_approved"
     | "appointment_rejected"
     | "appointment_rescheduled"
-    | "appointment_cancelled";
+    | "appointment_cancelled"
+    | "system";
   patient: { title: string; message: string; dedupeKey: string };
   provider?: { title: string; message: string; dedupeKey: string };
 }) {

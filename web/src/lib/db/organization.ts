@@ -128,20 +128,35 @@ async function ensureProfiles(params: {
   if (userProfile.error) return { error: userProfile.error };
 
   if (params.role === "patient") {
+    const existingProfile = await admin
+      .from("patient_profiles")
+      .select("onboarding_status, ready_for_scheduling, submitted_at")
+      .eq("user_id", params.user.id)
+      .maybeSingle();
+    if (existingProfile.error) return { error: existingProfile.error };
+
     const onboardingStatus = params.user.user_metadata?.patientOnboarding?.status;
     const readyForScheduling = params.user.user_metadata?.patientOnboarding?.readyForScheduling;
     const submittedAt = params.user.user_metadata?.patientOnboarding?.submittedAt;
+
+    const resolvedOnboardingStatus =
+      onboardingStatus === "in_progress" || onboardingStatus === "submitted"
+        ? onboardingStatus
+        : (existingProfile.data?.onboarding_status ?? "not_started");
+    const resolvedReadyForScheduling =
+      typeof readyForScheduling === "boolean"
+        ? readyForScheduling
+        : Boolean(existingProfile.data?.ready_for_scheduling);
+    const resolvedSubmittedAt =
+      typeof submittedAt === "string" ? submittedAt : (existingProfile.data?.submitted_at ?? null);
 
     const { error } = await admin.from("patient_profiles").upsert(
       {
         user_id: params.user.id,
         organization_id: params.organizationId,
-        onboarding_status:
-          onboardingStatus === "in_progress" || onboardingStatus === "submitted"
-            ? onboardingStatus
-            : "not_started",
-        ready_for_scheduling: Boolean(readyForScheduling),
-        submitted_at: typeof submittedAt === "string" ? submittedAt : null,
+        onboarding_status: resolvedOnboardingStatus,
+        ready_for_scheduling: resolvedReadyForScheduling,
+        submitted_at: resolvedSubmittedAt,
       },
       {
         onConflict: "user_id",

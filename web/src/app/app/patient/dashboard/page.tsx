@@ -60,10 +60,16 @@ export default async function PatientDashboardPage() {
           Continue onboarding
         </Link>
         <Link
-          href="/app/patient/appointments"
+          href="/app/patient/appointments/booked"
           className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
         >
-          Manage appointments
+          View booked appointments
+        </Link>
+        <Link
+          href="/app/patient/appointments/schedule"
+          className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+        >
+          Schedule appointment
         </Link>
         <Link
           href="/app/patient/messages"

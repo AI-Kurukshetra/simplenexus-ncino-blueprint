@@ -13,7 +13,8 @@ function getNavItems(role: string | null, providerPending: boolean) {
     return [
       { href: "/app/patient/dashboard", label: "Dashboard" },
       { href: "/app/patient/onboarding", label: "Onboarding" },
-      { href: "/app/patient/appointments", label: "Appointments" },
+      { href: "/app/patient/appointments/booked", label: "Booked Appts" },
+      { href: "/app/patient/appointments/schedule", label: "Schedule" },
       { href: "/app/patient/care-plans", label: "Care Plans" },
       { href: "/app/patient/billing", label: "Billing" },
       { href: "/app/patient/messages", label: "Messages" },
@@ -25,6 +26,7 @@ function getNavItems(role: string | null, providerPending: boolean) {
     }
     return [
       { href: "/app/provider/dashboard", label: "Dashboard" },
+      { href: "/app/provider/appointments", label: "Appointments" },
       { href: "/app/provider/schedule", label: "Schedule" },
       { href: "/app/provider/tasks", label: "Tasks" },
       { href: "/app/provider/messages", label: "Messages" },
@@ -63,7 +65,7 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 via-sky-50 to-emerald-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/" className="font-semibold text-slate-900">
             Virtual Health Platform
