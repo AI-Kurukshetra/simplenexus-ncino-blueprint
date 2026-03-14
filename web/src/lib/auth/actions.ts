@@ -77,6 +77,14 @@ function getAppUrl() {
   return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 }
 
+function signupErrorCode(error: { message?: string } | null) {
+  const message = error?.message?.toLowerCase() ?? "";
+  if (message.includes("already registered")) return "email_in_use";
+  if (message.includes("invalid email")) return "invalid_email";
+  if (message.includes("password")) return "weak_password";
+  return "signup_failed";
+}
+
 export async function signInWithPassword(formData: FormData) {
   const parsed = signInSchema.safeParse({
     email: formData.get("email"),
@@ -134,7 +142,7 @@ export async function signUpWithPassword(formData: FormData) {
   });
 
   if (error) {
-    redirect("/sign-up?error=signup_failed");
+    redirect(`/sign-up?error=${signupErrorCode(error)}`);
   }
 
   if (data.user) {
@@ -179,7 +187,11 @@ export async function signUpWithPassword(formData: FormData) {
       roleOverride: parsed.data.role,
     });
     if (profileContext.error) {
-      redirect("/sign-up?error=signup_failed");
+      console.error("signup profile bootstrap failed", {
+        userId: data.user.id,
+        role: parsed.data.role,
+        error: profileContext.error,
+      });
     }
   }
 

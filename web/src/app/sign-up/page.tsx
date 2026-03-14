@@ -6,6 +6,15 @@ function getError(input: string | undefined) {
   if (input === "invalid_form") {
     return "Please fill all required fields. Provider signup needs specialty and license number.";
   }
+  if (input === "email_in_use") {
+    return "This email is already registered. Try signing in or use another email.";
+  }
+  if (input === "invalid_email") {
+    return "Please enter a valid email address.";
+  }
+  if (input === "weak_password") {
+    return "Password does not meet requirements. Use at least 8 characters.";
+  }
   if (input === "signup_failed") return "Unable to create account right now.";
   return null;
 }
